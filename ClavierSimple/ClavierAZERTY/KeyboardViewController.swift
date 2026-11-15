@@ -10,20 +10,22 @@ class KeyView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.cornerRadius = 8
+        layer.cornerRadius = 10
         isUserInteractionEnabled = true
         isAccessibilityElement = true
         accessibilityTraits = .keyboardKey
 
         label.textAlignment = .center
-        label.font = UIFont.systemFont(ofSize: 22, weight: .medium)
+        label.font = UIFont.systemFont(ofSize: 26, weight: .semibold)
         label.textColor = .black
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.7
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
 
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             label.topAnchor.constraint(equalTo: topAnchor),
             label.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
@@ -88,29 +90,34 @@ class KeyboardViewController: UIInputViewController {
         suggestionViews.removeAll()
         view.backgroundColor = UIColor(white: 0.85, alpha: 1.0)
 
+        // Hauteur agrandie à 420 pt avec priorité souple (999) pour éviter tout crash AutoLayout
+        let heightConstraint = view.heightAnchor.constraint(equalToConstant: 420)
+        heightConstraint.priority = UILayoutPriority(999)
+        heightConstraint.isActive = true
+
         mainStackView = UIStackView()
         mainStackView.axis = .vertical
         mainStackView.distribution = .fillEqually
-        mainStackView.spacing = 8
+        mainStackView.spacing = 6
         mainStackView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(mainStackView)
 
         NSLayoutConstraint.activate([
-            mainStackView.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-            mainStackView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
-            mainStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            mainStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8)
+            mainStackView.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
+            mainStackView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -4),
+            mainStackView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
+            mainStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4)
         ])
 
         let predictionStack = UIStackView()
         predictionStack.axis = .horizontal
         predictionStack.distribution = .fillEqually
-        predictionStack.spacing = 8
+        predictionStack.spacing = 6
 
         for _ in 0..<3 {
             let kv = KeyView()
             kv.defaultColor = UIColor(white: 0.94, alpha: 1.0)
-            kv.label.font = UIFont.systemFont(ofSize: 22, weight: .semibold)
+            kv.label.font = UIFont.systemFont(ofSize: 25, weight: .bold)
             kv.onTrigger = { [weak self] view in self?.predictionPressed(view) }
             suggestionViews.append(kv)
             predictionStack.addArrangedSubview(kv)
@@ -121,8 +128,8 @@ class KeyboardViewController: UIInputViewController {
         for row in currentRows {
             let rowStack = UIStackView()
             rowStack.axis = .horizontal
-            rowStack.distribution = .fillEqually
-            rowStack.spacing = 6
+            rowStack.distribution = .fillProportionally
+            rowStack.spacing = 4
 
             for key in row {
                 rowStack.addArrangedSubview(createKeyView(title: key))
@@ -142,19 +149,24 @@ class KeyboardViewController: UIInputViewController {
             kv.label.text = isUppercase ? "⇧ MAJ" : "⇧ min"
             kv.defaultColor = isUppercase ? .systemBlue : .systemGray3
             kv.label.textColor = isUppercase ? .white : .black
+            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 95).isActive = true
         case "DEL":
             kv.label.text = "⌫"
             kv.defaultColor = .systemGray3
+            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 95).isActive = true
         case "123", "ABC":
             kv.label.text = title
             kv.defaultColor = .systemGray3
+            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 95).isActive = true
         case "SPACE":
             kv.label.text = "Espace"
             kv.defaultColor = .white
+            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
         case "RETURN":
             kv.label.text = "↵"
             kv.defaultColor = .systemBlue
             kv.label.textColor = .white
+            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
         default:
             kv.label.text = isUppercase ? title.uppercased() : title.lowercased()
             kv.defaultColor = .white
