@@ -1,0 +1,40 @@
+name: ClavierSimple
+options:
+  bundleIdPrefix: com.claviersimple
+  deploymentTarget:
+    iOS: "15.0"
+targets:
+  ClavierSimple:
+    type: application
+    platform: iOS
+    sources:
+      - path: ClavierSimple
+        excludes:
+          - ClavierAZERTY/**
+    settings:
+      base:
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: NO
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
+        CODE_SIGNING_ALLOWED: NO
+    dependencies:
+      - target: ClavierAZERTY
+  ClavierAZERTY:
+    type: app-extension
+    platform: iOS
+    sources: [ClavierSimple/ClavierAZERTY]
+    info:
+      path: ClavierSimple/ClavierAZERTY/Info.plist
+      properties:
+        CFBundleDisplayName: ClavierAZERTY
+        NSExtension:
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: fr-FR
+            RequestsOpenAccess: false
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+    settings:
+      base:
+        CODE_SIGNING_ALLOWED: NO
