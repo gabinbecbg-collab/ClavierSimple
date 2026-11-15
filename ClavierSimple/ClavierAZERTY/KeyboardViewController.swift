@@ -46,10 +46,6 @@ class KeyboardViewController: UIInputViewController {
         mainStackView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(mainStackView)
 
-        let heightConstraint = view.heightAnchor.constraint(equalToConstant: 360)
-        heightConstraint.priority = UILayoutPriority(999)
-        heightConstraint.isActive = true
-
         NSLayoutConstraint.activate([
             mainStackView.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
             mainStackView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
@@ -57,7 +53,6 @@ class KeyboardViewController: UIInputViewController {
             mainStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8)
         ])
 
-        // Barre de prédiction (3 gros boutons en haut)
         let predictionStack = UIStackView()
         predictionStack.axis = .horizontal
         predictionStack.distribution = .fillEqually
@@ -69,8 +64,6 @@ class KeyboardViewController: UIInputViewController {
             btn.backgroundColor = UIColor(white: 0.94, alpha: 1.0)
             btn.setTitleColor(.black, for: .normal)
             btn.titleLabel?.font = UIFont.systemFont(ofSize: 22, weight: .semibold)
-            btn.titleLabel?.adjustsFontSizeToFitWidth = true
-            btn.titleLabel?.minimumScaleFactor = 0.7
             btn.addTarget(self, action: #selector(predictionPressed(_:)), for: .touchDown)
             suggestionButtons.append(btn)
             predictionStack.addArrangedSubview(btn)
@@ -82,12 +75,11 @@ class KeyboardViewController: UIInputViewController {
         for row in currentRows {
             let rowStack = UIStackView()
             rowStack.axis = .horizontal
-            rowStack.distribution = .fillProportionally
+            rowStack.distribution = .fillEqually
             rowStack.spacing = 6
 
             for key in row {
-                let button = createKeyButton(title: key)
-                rowStack.addArrangedSubview(button)
+                rowStack.addArrangedSubview(createKeyButton(title: key))
             }
             mainStackView.addArrangedSubview(rowStack)
         }
@@ -98,43 +90,29 @@ class KeyboardViewController: UIInputViewController {
     private func createKeyButton(title: String) -> UIButton {
         let button = UIButton(type: .system)
         button.layer.cornerRadius = 8
-        button.layer.shadowColor = UIColor.black.cgColor
-        button.layer.shadowOffset = CGSize(width: 0, height: 1)
-        button.layer.shadowOpacity = 0.25
-        button.layer.shadowRadius = 0.5
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 24, weight: .medium)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 22, weight: .medium)
 
         switch title {
         case "SHIFT":
             button.setTitle(isUppercase ? "⇧ MAJ" : "⇧ min", for: .normal)
             button.backgroundColor = isUppercase ? UIColor.systemBlue : UIColor.systemGray3
             button.setTitleColor(isUppercase ? .white : .black, for: .normal)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 85).isActive = true
-
         case "DEL":
             button.setTitle("⌫", for: .normal)
             button.backgroundColor = UIColor.systemGray3
             button.setTitleColor(.black, for: .normal)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 85).isActive = true
-
         case "123", "ABC":
             button.setTitle(title, for: .normal)
             button.backgroundColor = UIColor.systemGray3
             button.setTitleColor(.black, for: .normal)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 85).isActive = true
-
         case "SPACE":
             button.setTitle("Espace", for: .normal)
             button.backgroundColor = .white
             button.setTitleColor(.black, for: .normal)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
-
         case "RETURN":
-            button.setTitle("Envoyer / ↵", for: .normal)
+            button.setTitle("↵", for: .normal)
             button.backgroundColor = UIColor.systemBlue
             button.setTitleColor(.white, for: .normal)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
-
         default:
             let displayChar = isUppercase ? title.uppercased() : title.lowercased()
             button.setTitle(displayChar, for: .normal)
@@ -151,7 +129,7 @@ class KeyboardViewController: UIInputViewController {
         guard let before = textDocumentProxy.documentContextBeforeInput, !before.isEmpty else {
             return ""
         }
-        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).subtracting(CharacterSet(charactersIn: "'’-"))
+        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
         if let range = before.rangeOfCharacter(from: separators, options: .backwards) {
             return String(before[range.upperBound...])
         }
@@ -163,9 +141,7 @@ class KeyboardViewController: UIInputViewController {
         var suggestions: [String] = []
 
         if !prefix.isEmpty {
-            let nsPrefix = prefix as NSString
-            let range = NSRange(location: 0, length: nsPrefix.length)
-
+            let range = NSRange(location: 0, length: (prefix as NSString).length)
             if let completions = textChecker.completions(forPartialWordRange: range, in: prefix, language: "fr_FR") {
                 suggestions.append(contentsOf: completions)
             }
@@ -183,10 +159,8 @@ class KeyboardViewController: UIInputViewController {
                 let word = suggestions[i]
                 let formatted = (prefix.first?.isUppercase == true) ? word.prefix(1).uppercased() + word.dropFirst() : word
                 suggestionButtons[i].setTitle(formatted, for: .normal)
-                suggestionButtons[i].isEnabled = true
             } else {
                 suggestionButtons[i].setTitle("", for: .normal)
-                suggestionButtons[i].isEnabled = false
             }
         }
     }
@@ -197,13 +171,6 @@ class KeyboardViewController: UIInputViewController {
         lastPressTime = now
 
         guard let chosenWord = sender.title(for: .normal), !chosenWord.isEmpty else { return }
-
-        let originalColor = sender.backgroundColor
-        sender.backgroundColor = UIColor.systemGray3
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            sender.backgroundColor = originalColor
-        }
-
         let prefix = currentWordPrefix()
         for _ in 0..<prefix.count {
             textDocumentProxy.deleteBackward()
@@ -217,12 +184,6 @@ class KeyboardViewController: UIInputViewController {
         let now = Date().timeIntervalSince1970
         if now - lastPressTime < debounceInterval { return }
         lastPressTime = now
-
-        let originalColor = sender.backgroundColor
-        sender.backgroundColor = UIColor.systemGray4
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            sender.backgroundColor = originalColor
-        }
 
         guard let key = sender.accessibilityIdentifier else { return }
 
