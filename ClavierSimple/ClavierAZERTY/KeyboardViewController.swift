@@ -34,6 +34,22 @@ class KeyboardViewController: UIInputViewController {
         updatePredictions()
     }
 
+    private func attachSwitchEvents(to button: UIButton, action: Selector) {
+        button.isUserInteractionEnabled = true
+        button.addTarget(self, action: action, for: [.touchDown, .touchUpInside, .primaryActionTriggered])
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handlePointerTap(_:)))
+        button.addGestureRecognizer(tap)
+    }
+
+    @objc private func handlePointerTap(_ gesture: UITapGestureRecognizer) {
+        guard let button = gesture.view as? UIButton else { return }
+        if suggestionButtons.contains(button) {
+            predictionPressed(button)
+        } else {
+            keyPressed(button)
+        }
+    }
+
     private func setupKeyboardInterface() {
         view.subviews.forEach { $0.removeFromSuperview() }
         suggestionButtons.removeAll()
@@ -59,12 +75,12 @@ class KeyboardViewController: UIInputViewController {
         predictionStack.spacing = 8
 
         for _ in 0..<3 {
-            let btn = UIButton(type: .system)
+            let btn = UIButton(type: .custom)
             btn.layer.cornerRadius = 8
             btn.backgroundColor = UIColor(white: 0.94, alpha: 1.0)
             btn.setTitleColor(.black, for: .normal)
             btn.titleLabel?.font = UIFont.systemFont(ofSize: 22, weight: .semibold)
-            btn.addTarget(self, action: #selector(predictionPressed(_:)), for: .touchDown)
+            attachSwitchEvents(to: btn, action: #selector(predictionPressed(_:)))
             suggestionButtons.append(btn)
             predictionStack.addArrangedSubview(btn)
         }
@@ -88,7 +104,7 @@ class KeyboardViewController: UIInputViewController {
     }
 
     private func createKeyButton(title: String) -> UIButton {
-        let button = UIButton(type: .system)
+        let button = UIButton(type: .custom)
         button.layer.cornerRadius = 8
         button.titleLabel?.font = UIFont.systemFont(ofSize: 22, weight: .medium)
 
@@ -121,7 +137,7 @@ class KeyboardViewController: UIInputViewController {
         }
 
         button.accessibilityIdentifier = title
-        button.addTarget(self, action: #selector(keyPressed(_:)), for: .touchDown)
+        attachSwitchEvents(to: button, action: #selector(keyPressed(_:)))
         return button
     }
 
@@ -184,6 +200,12 @@ class KeyboardViewController: UIInputViewController {
         let now = Date().timeIntervalSince1970
         if now - lastPressTime < debounceInterval { return }
         lastPressTime = now
+
+        let originalColor = sender.backgroundColor
+        sender.backgroundColor = UIColor.systemGray4
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            sender.backgroundColor = originalColor
+        }
 
         guard let key = sender.accessibilityIdentifier else { return }
 
