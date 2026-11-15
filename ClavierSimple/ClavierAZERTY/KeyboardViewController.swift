@@ -47,7 +47,7 @@ class KeyboardViewController: UIInputViewController {
         view.addSubview(mainStackView)
 
         let heightConstraint = view.heightAnchor.constraint(equalToConstant: 360)
-        heightConstraint.priority = .required
+        heightConstraint.priority = UILayoutPriority(999)
         heightConstraint.isActive = true
 
         NSLayoutConstraint.activate([
