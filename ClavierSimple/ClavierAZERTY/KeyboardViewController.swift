@@ -1,5 +1,54 @@
 import UIKit
 
+class KeyView: UIView {
+    let label = UILabel()
+    var keyIdentifier: String = ""
+    var onTrigger: ((KeyView) -> Void)?
+    var defaultColor: UIColor = .white {
+        didSet { backgroundColor = defaultColor }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.cornerRadius = 8
+        isUserInteractionEnabled = true
+        isAccessibilityElement = true
+        accessibilityTraits = .keyboardKey
+
+        label.textAlignment = .center
+        label.font = UIFont.systemFont(ofSize: 22, weight: .medium)
+        label.textColor = .black
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            label.topAnchor.constraint(equalTo: topAnchor),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        addGestureRecognizer(tap)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        onTrigger?(self)
+    }
+
+    @objc private func handleTap() {
+        onTrigger?(self)
+    }
+
+    override func accessibilityActivate() -> Bool {
+        onTrigger?(self)
+        return true
+    }
+}
+
 class KeyboardViewController: UIInputViewController {
 
     private var isUppercase = true
@@ -7,7 +56,7 @@ class KeyboardViewController: UIInputViewController {
     private var lastPressTime: TimeInterval = 0
     private let debounceInterval: TimeInterval = 0.30
     private var mainStackView: UIStackView!
-    private var suggestionButtons: [UIButton] = []
+    private var suggestionViews: [KeyView] = []
     private let textChecker = UITextChecker()
 
     private let azertyRows = [
@@ -34,25 +83,9 @@ class KeyboardViewController: UIInputViewController {
         updatePredictions()
     }
 
-    private func attachSwitchEvents(to button: UIButton, action: Selector) {
-        button.isUserInteractionEnabled = true
-        button.addTarget(self, action: action, for: [.touchDown, .touchUpInside, .primaryActionTriggered])
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handlePointerTap(_:)))
-        button.addGestureRecognizer(tap)
-    }
-
-    @objc private func handlePointerTap(_ gesture: UITapGestureRecognizer) {
-        guard let button = gesture.view as? UIButton else { return }
-        if suggestionButtons.contains(button) {
-            predictionPressed(button)
-        } else {
-            keyPressed(button)
-        }
-    }
-
     private func setupKeyboardInterface() {
         view.subviews.forEach { $0.removeFromSuperview() }
-        suggestionButtons.removeAll()
+        suggestionViews.removeAll()
         view.backgroundColor = UIColor(white: 0.85, alpha: 1.0)
 
         mainStackView = UIStackView()
@@ -75,19 +108,16 @@ class KeyboardViewController: UIInputViewController {
         predictionStack.spacing = 8
 
         for _ in 0..<3 {
-            let btn = UIButton(type: .custom)
-            btn.layer.cornerRadius = 8
-            btn.backgroundColor = UIColor(white: 0.94, alpha: 1.0)
-            btn.setTitleColor(.black, for: .normal)
-            btn.titleLabel?.font = UIFont.systemFont(ofSize: 22, weight: .semibold)
-            attachSwitchEvents(to: btn, action: #selector(predictionPressed(_:)))
-            suggestionButtons.append(btn)
-            predictionStack.addArrangedSubview(btn)
+            let kv = KeyView()
+            kv.defaultColor = UIColor(white: 0.94, alpha: 1.0)
+            kv.label.font = UIFont.systemFont(ofSize: 22, weight: .semibold)
+            kv.onTrigger = { [weak self] view in self?.predictionPressed(view) }
+            suggestionViews.append(kv)
+            predictionStack.addArrangedSubview(kv)
         }
         mainStackView.addArrangedSubview(predictionStack)
 
         let currentRows = isNumbers ? numberRows : azertyRows
-
         for row in currentRows {
             let rowStack = UIStackView()
             rowStack.axis = .horizontal
@@ -95,7 +125,7 @@ class KeyboardViewController: UIInputViewController {
             rowStack.spacing = 6
 
             for key in row {
-                rowStack.addArrangedSubview(createKeyButton(title: key))
+                rowStack.addArrangedSubview(createKeyView(title: key))
             }
             mainStackView.addArrangedSubview(rowStack)
         }
@@ -103,48 +133,40 @@ class KeyboardViewController: UIInputViewController {
         updatePredictions()
     }
 
-    private func createKeyButton(title: String) -> UIButton {
-        let button = UIButton(type: .custom)
-        button.layer.cornerRadius = 8
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 22, weight: .medium)
+    private func createKeyView(title: String) -> KeyView {
+        let kv = KeyView()
+        kv.keyIdentifier = title
 
         switch title {
         case "SHIFT":
-            button.setTitle(isUppercase ? "⇧ MAJ" : "⇧ min", for: .normal)
-            button.backgroundColor = isUppercase ? UIColor.systemBlue : UIColor.systemGray3
-            button.setTitleColor(isUppercase ? .white : .black, for: .normal)
+            kv.label.text = isUppercase ? "⇧ MAJ" : "⇧ min"
+            kv.defaultColor = isUppercase ? .systemBlue : .systemGray3
+            kv.label.textColor = isUppercase ? .white : .black
         case "DEL":
-            button.setTitle("⌫", for: .normal)
-            button.backgroundColor = UIColor.systemGray3
-            button.setTitleColor(.black, for: .normal)
+            kv.label.text = "⌫"
+            kv.defaultColor = .systemGray3
         case "123", "ABC":
-            button.setTitle(title, for: .normal)
-            button.backgroundColor = UIColor.systemGray3
-            button.setTitleColor(.black, for: .normal)
+            kv.label.text = title
+            kv.defaultColor = .systemGray3
         case "SPACE":
-            button.setTitle("Espace", for: .normal)
-            button.backgroundColor = .white
-            button.setTitleColor(.black, for: .normal)
+            kv.label.text = "Espace"
+            kv.defaultColor = .white
         case "RETURN":
-            button.setTitle("↵", for: .normal)
-            button.backgroundColor = UIColor.systemBlue
-            button.setTitleColor(.white, for: .normal)
+            kv.label.text = "↵"
+            kv.defaultColor = .systemBlue
+            kv.label.textColor = .white
         default:
-            let displayChar = isUppercase ? title.uppercased() : title.lowercased()
-            button.setTitle(displayChar, for: .normal)
-            button.backgroundColor = .white
-            button.setTitleColor(.black, for: .normal)
+            kv.label.text = isUppercase ? title.uppercased() : title.lowercased()
+            kv.defaultColor = .white
         }
 
-        button.accessibilityIdentifier = title
-        attachSwitchEvents(to: button, action: #selector(keyPressed(_:)))
-        return button
+        kv.accessibilityLabel = kv.label.text
+        kv.onTrigger = { [weak self] view in self?.keyPressed(view) }
+        return kv
     }
 
     private func currentWordPrefix() -> String {
-        guard let before = textDocumentProxy.documentContextBeforeInput, !before.isEmpty else {
-            return ""
-        }
+        guard let before = textDocumentProxy.documentContextBeforeInput, !before.isEmpty else { return "" }
         let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
         if let range = before.rangeOfCharacter(from: separators, options: .backwards) {
             return String(before[range.upperBound...])
@@ -170,23 +192,25 @@ class KeyboardViewController: UIInputViewController {
             suggestions = ["Bonjour", "Je", "Merci"]
         }
 
-        for i in 0..<suggestionButtons.count {
+        for i in 0..<suggestionViews.count {
             if i < suggestions.count {
                 let word = suggestions[i]
                 let formatted = (prefix.first?.isUppercase == true) ? word.prefix(1).uppercased() + word.dropFirst() : word
-                suggestionButtons[i].setTitle(formatted, for: .normal)
+                suggestionViews[i].label.text = formatted
+                suggestionViews[i].accessibilityLabel = formatted
             } else {
-                suggestionButtons[i].setTitle("", for: .normal)
+                suggestionViews[i].label.text = ""
+                suggestionViews[i].accessibilityLabel = ""
             }
         }
     }
 
-    @objc private func predictionPressed(_ sender: UIButton) {
+    private func predictionPressed(_ sender: KeyView) {
         let now = Date().timeIntervalSince1970
         if now - lastPressTime < debounceInterval { return }
         lastPressTime = now
 
-        guard let chosenWord = sender.title(for: .normal), !chosenWord.isEmpty else { return }
+        guard let chosenWord = sender.label.text, !chosenWord.isEmpty else { return }
         let prefix = currentWordPrefix()
         for _ in 0..<prefix.count {
             textDocumentProxy.deleteBackward()
@@ -196,20 +220,18 @@ class KeyboardViewController: UIInputViewController {
         setupKeyboardInterface()
     }
 
-    @objc private func keyPressed(_ sender: UIButton) {
+    private func keyPressed(_ sender: KeyView) {
         let now = Date().timeIntervalSince1970
         if now - lastPressTime < debounceInterval { return }
         lastPressTime = now
 
-        let originalColor = sender.backgroundColor
-        sender.backgroundColor = UIColor.systemGray4
+        let savedColor = sender.defaultColor
+        sender.backgroundColor = .systemGray4
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            sender.backgroundColor = originalColor
+            sender.backgroundColor = savedColor
         }
 
-        guard let key = sender.accessibilityIdentifier else { return }
-
-        switch key {
+        switch sender.keyIdentifier {
         case "SHIFT":
             isUppercase.toggle()
             setupKeyboardInterface()
@@ -229,9 +251,9 @@ class KeyboardViewController: UIInputViewController {
             textDocumentProxy.insertText("\n")
             updatePredictions()
         default:
-            let charToInsert = isUppercase ? key.uppercased() : key.lowercased()
+            let charToInsert = isUppercase ? sender.keyIdentifier.uppercased() : sender.keyIdentifier.lowercased()
             textDocumentProxy.insertText(charToInsert)
-            if isUppercase && key.rangeOfCharacter(from: .letters) != nil {
+            if isUppercase && sender.keyIdentifier.rangeOfCharacter(from: .letters) != nil {
                 isUppercase = false
                 setupKeyboardInterface()
             } else {
