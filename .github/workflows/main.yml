@@ -34,6 +34,7 @@ jobs:
                     - project.yml
               settings:
                 base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.claviersimple.app
                   INFOPLIST_KEY_UIApplicationSceneManifest_Generation: NO
                   INFOPLIST_KEY_UILaunchScreen_Generation: YES
                   INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
@@ -62,6 +63,7 @@ jobs:
                     NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
               settings:
                 base:
+                  PRODUCT_BUNDLE_IDENTIFIER: com.claviersimple.app.ClavierAZERTY
                   CODE_SIGNING_ALLOWED: NO
           EOF
           xcodegen generate
