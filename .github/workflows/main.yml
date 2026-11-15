@@ -58,7 +58,7 @@ jobs:
                       IsASCIICapable: false
                       PrefersRightToLeft: false
                       PrimaryLanguage: fr-FR
-                      RequestsOpenAccess: false
+                      RequestsOpenAccess: true
                     NSExtensionPointIdentifier: com.apple.keyboard-service
                     NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
               settings:
