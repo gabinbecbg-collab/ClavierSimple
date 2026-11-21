@@ -1,4 +1,5 @@
 import UIKit
+import NaturalLanguage
 
 class KeyView: UIView {
     let label = UILabel()
@@ -53,95 +54,244 @@ class KeyView: UIView {
         onTrigger?(self)
         return true
     }
+
+    func animateFeedback(highlightColor: UIColor) {
+        let savedColor = defaultColor
+        backgroundColor = highlightColor
+        UIView.animate(withDuration: 0.08, animations: {
+            self.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+        }) { _ in
+            UIView.animate(withDuration: 0.10) {
+                self.transform = .identity
+                self.backgroundColor = savedColor
+            }
+        }
+    }
 }
 
-class FrenchPredictionEngine {
+class NeuralFrenchPredictionEngine {
     private let textChecker = UITextChecker()
+    private let tagger = NLTagger(tagSchemes: [.lexicalClass])
+    private let defaults = UserDefaults.standard
 
-    // Mots français les plus fréquents classés par priorité d'usage
-    private let commonWords: [String] = [
+    private let unigramKey = "user_unigram_freq_v2"
+    private let bigramKey = "user_bigram_freq_v2"
+    private let trigramKey = "user_trigram_freq_v2"
+
+    private var userUnigrams: [String: Int] = [:]
+    private var userBigrams: [String: [String: Int]] = [:]
+    private var userTrigrams: [String: [String: Int]] = [:]
+
+    private let azertyNeighbors: [Character: Set<Character>] = [
+        "a": ["z", "q"], "z": ["a", "e", "q", "s"], "e": ["z", "r", "s", "d"],
+        "r": ["e", "t", "d", "f"], "t": ["r", "y", "f", "g"], "y": ["t", "u", "g", "h"],
+        "u": ["y", "i", "h", "j"], "i": ["u", "o", "j", "k"], "o": ["i", "p", "k", "l"],
+        "p": ["o", "l", "m"], "q": ["a", "z", "s", "w"], "s": ["q", "z", "e", "d", "w", "x"],
+        "d": ["s", "e", "r", "f", "x", "c"], "f": ["d", "r", "t", "g", "c", "v"],
+        "g": ["f", "t", "y", "h", "v", "b"], "h": ["g", "y", "u", "j", "b", "n"],
+        "j": ["h", "u", "i", "k", "n"], "k": ["j", "i", "o", "l"],
+        "l": ["k", "o", "p", "m"], "m": ["l", "p"],
+        "w": ["q", "s", "x"], "x": ["w", "s", "d", "c"], "c": ["x", "d", "f", "v"],
+        "v": ["c", "f", "g", "b"], "b": ["v", "g", "h", "n"], "n": ["b", "h", "j"]
+    ]
+
+    private let coreLexicon: [String] = [
         "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
         "le", "la", "les", "un", "une", "des", "du", "de", "au", "aux",
-        "ce", "cet", "cette", "ces", "mon", "ton", "son", "ma", "ta", "sa", "mes", "tes", "ses", "notre", "votre", "leur",
-        "que", "qui", "quoi", "dont", "où", "quand", "comment", "pourquoi", "combien",
-        "et", "ou", "mais", "donc", "or", "ni", "car", "si", "alors", "aussi", "très", "trop", "bien", "mal", "peu", "beaucoup",
-        "dans", "sur", "sous", "avec", "sans", "pour", "par", "vers", "chez", "entre", "avant", "après", "depuis", "pendant",
-        "suis", "es", "est", "sommes", "êtes", "sont", "étais", "était", "serai", "sera", "être", "été",
-        "ai", "as", "a", "avons", "avez", "ont", "avais", "avait", "aurai", "aura", "avoir", "eu",
-        "vais", "vas", "va", "allons", "allez", "vont", "aller", "allé",
-        "fais", "fait", "faisons", "faites", "font", "faire",
-        "peux", "peut", "pouvons", "pouvez", "peuvent", "pouvoir", "pu",
-        "veux", "veut", "voulons", "voulez", "veulent", "vouloir", "voulu",
-        "dois", "doit", "devons", "devez", "doivent", "devoir",
-        "sais", "sait", "savons", "savez", "savent", "savoir",
-        "vois", "voit", "voyons", "voyez", "voient", "voir", "vu",
-        "prends", "prend", "prenons", "prenez", "prennent", "prendre", "pris",
-        "viens", "vient", "venons", "venez", "viennent", "venir", "venu",
-        "dis", "dit", "disons", "dites", "disent", "dire",
-        "mets", "met", "mettons", "mettez", "mettent", "mettre", "mis",
-        "bonjour", "salut", "coucou", "merci", "oui", "non", "ok", "d'accord", "pardon", "excuse", "s'il", "plaît",
-        "aujourd'hui", "demain", "hier", "maintenant", "bientôt", "toujours", "jamais", "souvent", "parfois", "déjà", "encore",
-        "tout", "tous", "toute", "toutes", "rien", "personne", "quelque", "chose", "quelqu'un",
-        "bon", "bonne", "petit", "petite", "grand", "grande", "nouveau", "nouvelle", "vieux", "vieille", "autre", "même",
-        "temps", "jour", "fois", "heure", "ans", "monde", "vie", "main", "tête", "cœur", "maison", "voiture", "fauteuil",
-        "travail", "problème", "question", "idée", "besoin", "envie", "peur", "raison", "place", "fin", "début", "coup"
+        "ce", "cet", "cette", "ces", "mon", "ton", "son", "ma", "ta", "sa", "mes", "tes", "ses", "notre", "votre", "leur", "leurs",
+        "que", "qui", "quoi", "dont", "où", "quand", "comment", "pourquoi", "combien", "quel", "quelle", "quels", "quelles",
+        "et", "ou", "mais", "donc", "car", "si", "alors", "aussi", "très", "trop", "bien", "mal", "peu", "beaucoup", "plus", "moins",
+        "dans", "sur", "sous", "avec", "sans", "pour", "par", "vers", "chez", "entre", "avant", "après", "depuis", "pendant", "contre",
+        "suis", "es", "est", "sommes", "êtes", "sont", "étais", "était", "étions", "étiez", "étaient", "serai", "sera", "serons", "serez", "seront", "être", "été",
+        "ai", "as", "a", "avons", "avez", "ont", "avais", "avait", "avions", "aviez", "avaient", "aurai", "aura", "aurons", "aurez", "auront", "avoir", "eu",
+        "vais", "vas", "va", "allons", "allez", "vont", "allais", "allait", "irai", "ira", "aller", "allé", "allée",
+        "fais", "fait", "faisons", "faites", "font", "faisais", "faisait", "ferai", "fera", "faire",
+        "peux", "peut", "pouvons", "pouvez", "peuvent", "pouvais", "pouvait", "pourrai", "pourra", "pouvoir", "pu",
+        "veux", "veut", "voulons", "voulez", "veulent", "voulais", "voulait", "voudrais", "voudrait", "vouloir", "voulu",
+        "dois", "doit", "devons", "devez", "doivent", "devais", "devait", "devrai", "devra", "devoir", "dû",
+        "sais", "sait", "savons", "savez", "savent", "savais", "savait", "saura", "savoir", "su",
+        "vois", "voit", "voyons", "voyez", "voient", "voyais", "voyait", "verrai", "verra", "voir", "vu",
+        "prends", "prend", "prenons", "prenez", "prennent", "prenais", "prenait", "prendrai", "prendre", "pris",
+        "viens", "vient", "venons", "venez", "viennent", "venais", "venait", "viendrai", "venir", "venu",
+        "dis", "dit", "disons", "dites", "disent", "disais", "disait", "dirai", "dire",
+        "mets", "met", "mettons", "mettez", "mettent", "mettais", "mettait", "mettrai", "mettre", "mis",
+        "pense", "penses", "pensons", "pensez", "pensent", "penser", "pensé",
+        "crois", "croit", "croyons", "croyez", "croient", "croire", "cru",
+        "trouve", "trouves", "trouvons", "trouvez", "trouvent", "trouver", "trouvé",
+        "donne", "donnes", "donnons", "donnez", "donnent", "donner", "donné",
+        "parle", "parles", "parlons", "parlez", "parlent", "parler", "parlé",
+        "aime", "aimes", "aimons", "aimez", "aiment", "aimer", "aimé",
+        "demande", "demandes", "demandons", "demandez", "demandent", "demander", "demandé",
+        "passe", "passes", "passons", "passez", "passent", "passer", "passé",
+        "reste", "restes", "restons", "restez", "restent", "rester", "resté",
+        "arrive", "arrives", "arrivons", "arrivez", "arrivent", "arriver", "arrivé",
+        "regarde", "regardes", "regardons", "regardez", "regardent", "regarder", "regardé",
+        "attends", "attend", "attendons", "attendez", "attendent", "attendre", "attendu",
+        "comprends", "comprend", "comprenons", "comprenez", "comprennent", "comprendre", "compris",
+        "bonjour", "salut", "coucou", "bonsoir", "merci", "oui", "non", "ok", "d'accord", "pardon", "excuse", "s'il", "plaît",
+        "aujourd'hui", "demain", "hier", "maintenant", "bientôt", "toujours", "jamais", "souvent", "parfois", "déjà", "encore", "ensuite", "enfin",
+        "tout", "tous", "toute", "toutes", "rien", "personne", "quelque", "chose", "quelqu'un", "chaque", "plusieurs",
+        "bon", "bonne", "bons", "bonnes", "petit", "petite", "grand", "grande", "nouveau", "nouvelle", "vieux", "vieille", "autre", "autres", "même", "mêmes",
+        "super", "génial", "parfait", "content", "contente", "fatigué", "fatiguée", "prêt", "prête", "sûr", "sûre", "vrai", "faux", "possible", "impossible",
+        "temps", "jour", "jours", "fois", "heure", "heures", "minute", "minutes", "semaine", "mois", "ans", "année", "matin", "midi", "soir", "nuit",
+        "monde", "vie", "main", "mains", "tête", "cœur", "yeux", "maison", "chambre", "porte", "table", "lit", "voiture", "fauteuil", "batterie",
+        "téléphone", "ipad", "écran", "clavier", "message", "photo", "vidéo", "musique", "internet", "wifi", "application",
+        "travail", "école", "cours", "problème", "question", "réponse", "idée", "besoin", "envie", "peur", "raison", "place", "fin", "début", "coup", "aide"
     ]
 
-    // Prédiction contextuelle du mot suivant (Bigrammes français courants)
-    private let nextWordMap: [String: [String]] = [
-        "je": ["suis", "vais", "veux"],
-        "j'": ["ai", "aime", "espère"],
-        "tu": ["es", "vas", "peux"],
-        "il": ["est", "a", "va"],
-        "elle": ["est", "a", "va"],
-        "on": ["est", "va", "peut"],
-        "nous": ["sommes", "avons", "allons"],
-        "vous": ["êtes", "avez", "pouvez"],
-        "ils": ["sont", "ont", "vont"],
-        "elles": ["sont", "ont", "vont"],
-        "ça": ["va", "marche", "fait"],
-        "c'": ["est", "était", "était"],
-        "c'est": ["bon", "parfait", "super"],
-        "ce": ["n'est", "qui", "que"],
-        "n'": ["est", "ai", "a"],
-        "ne": ["pas", "sais", "peux"],
-        "pas": ["de", "du", "mal"],
-        "de": ["la", "le", "faire"],
-        "à": ["la", "demain", "tout"],
-        "au": ["top", "moins", "revoir"],
-        "en": ["fait", "train", "ce"],
-        "pour": ["le", "la", "moi"],
-        "dans": ["le", "la", "les"],
-        "avec": ["le", "la", "mon"],
-        "sur": ["le", "la", "mon"],
-        "et": ["toi", "vous", "je"],
-        "mais": ["je", "c'est", "il"],
-        "si": ["tu", "on", "c'est"],
-        "quand": ["tu", "on", "même"],
-        "comment": ["ça", "vas-tu", "faire"],
-        "pourquoi": ["pas", "tu", "il"],
-        "bonjour": ["comment", "ça", "à"],
-        "salut": ["comment", "ça", "tu"],
-        "merci": ["beaucoup", "pour", "à"],
-        "s'il": ["te", "vous", "plaît"],
-        "te": ["plaît", "dire", "voir"],
-        "vous": ["plaît", "êtes", "avez"],
-        "je suis": ["en", "là", "prêt"],
-        "je vais": ["bien", "voir", "faire"],
-        "je veux": ["bien", "dire", "aller"],
-        "j'ai": ["besoin", "envie", "fait"],
-        "ça va": ["bien", "et", "merci"],
+    private let transitions: [String: [String]] = [
+        "je": ["suis", "vais", "veux", "peux", "dois", "sais", "pense", "crois", "vois", "fais"],
+        "j'": ["ai", "aime", "espère", "arrive", "attends", "écoute", "envoie"],
+        "tu": ["es", "vas", "peux", "veux", "as", "fais", "sais", "viens"],
+        "il": ["est", "a", "va", "peut", "veut", "fait", "faut", "y"],
+        "elle": ["est", "a", "va", "peut", "veut", "fait"],
+        "on": ["est", "va", "peut", "a", "fait", "se"],
+        "nous": ["sommes", "avons", "allons", "pouvons", "voulons", "faisons"],
+        "vous": ["êtes", "avez", "pouvez", "voulez", "allez", "faites"],
+        "ils": ["sont", "ont", "vont", "peuvent", "veulent", "font"],
+        "elles": ["sont", "ont", "vont", "peuvent", "veulent", "font"],
+        "ça": ["va", "marche", "fait", "peut", "sera", "est"],
+        "c'": ["est", "était", "est-ce"],
+        "c'est": ["bon", "parfait", "super", "vrai", "possible", "gentil", "bien", "quoi"],
+        "ce": ["n'est", "qui", "que", "soir", "matin"],
+        "n'": ["est", "ai", "a", "ont", "importe"],
+        "ne": ["pas", "sais", "peux", "veux", "t'inquiète"],
+        "pas": ["de", "du", "mal", "encore", "toujours", "vraiment", "possible"],
+        "de": ["la", "le", "faire", "voir", "dire", "mon", "ton", "tout"],
+        "du": ["coup", "temps", "monde", "tout"],
+        "des": ["gens", "choses", "questions", "nouvelles"],
+        "à": ["la", "demain", "tout", "bientôt", "ce", "mon", "ton"],
+        "au": ["top", "moins", "revoir", "fait", "début"],
+        "en": ["fait", "train", "ce", "plus", "avance", "retard", "haut", "bas"],
+        "pour": ["le", "la", "moi", "toi", "vous", "faire", "dire", "voir"],
+        "dans": ["le", "la", "les", "un", "une", "mon", "ma"],
+        "avec": ["le", "la", "mon", "ma", "toi", "vous", "plaisir"],
+        "sur": ["le", "la", "mon", "ma", "l'ipad"],
+        "et": ["toi", "vous", "je", "on", "puis", "aussi"],
+        "mais": ["je", "c'est", "il", "on", "tu", "bon"],
+        "si": ["tu", "on", "c'est", "je", "vous"],
+        "quand": ["tu", "on", "même", "je", "vous"],
+        "comment": ["ça", "vas-tu", "tu", "faire", "on"],
+        "pourquoi": ["pas", "tu", "il", "on", "c'est"],
+        "bonjour": ["comment", "ça", "à", "tout"],
+        "salut": ["comment", "ça", "tu", "à"],
+        "merci": ["beaucoup", "pour", "à", "d'avance", "bien"],
+        "s'il": ["te", "vous"],
+        "te": ["plaît", "dire", "voir", "faire"],
+        "vous": ["plaît", "êtes", "avez", "pouvez"],
+        "je suis": ["en", "là", "prêt", "fatigué", "content", "bien", "sur", "dans"],
+        "je vais": ["bien", "voir", "faire", "aller", "prendre", "me"],
+        "je veux": ["bien", "dire", "aller", "faire", "voir", "un", "une"],
+        "je peux": ["avoir", "faire", "aller", "voir", "te", "vous"],
+        "j'ai": ["besoin", "envie", "fait", "un", "une", "pas", "bien", "mal"],
+        "ça va": ["bien", "et", "merci", "être", "aller"],
         "il y": ["a", "avait", "aura"],
-        "y": ["a", "va", "crois"]
+        "y": ["a", "va", "crois", "pense"],
+        "en train": ["de"],
+        "besoin": ["de", "d'aide"],
+        "envie": ["de", "d'aller"]
     ]
 
-    private lazy var frequencyRank: [String: Int] = {
-        var dict: [String: Int] = [:]
-        for (idx, word) in commonWords.enumerated() {
-            dict[word] = idx
+    // Auto-correction silencieuse quand on appuie sur Espace après un mot sans accent
+    private let autoCorrectMap: [String: String] = [
+        "ca": "ça",
+        "etre": "être",
+        "ete": "été",
+        "deja": "déjà",
+        "tres": "très",
+        "apres": "après",
+        "voila": "voilà",
+        "peut-etre": "peut-être",
+        "bientot": "bientôt",
+        "plait": "plaît",
+        "telephone": "téléphone",
+        "ecran": "écran",
+        "probleme": "problème",
+        "reponse": "réponse",
+        "idee": "idée",
+        "fatigue": "fatigué",
+        "pret": "prêt",
+        "genial": "génial"
+    ]
+
+    private let accentShortcuts: [String: [String]] = [
+        "ca": ["ça", "cas", "car"],
+        "etre": ["être", "êtres"],
+        "ete": ["été", "êtes"],
+        "deja": ["déjà"],
+        "tres": ["très"],
+        "apres": ["après"],
+        "a": ["à", "a", "as"],
+        "ou": ["où", "ou"],
+        "la": ["la", "là"],
+        "des": ["des", "dès"],
+        "du": ["du", "dû"],
+        "sur": ["sur", "sûr"],
+        "voila": ["voilà"],
+        "peut-etre": ["peut-être"],
+        "bientot": ["bientôt"],
+        "aujourd": ["aujourd'hui"],
+        "accord": ["d'accord"]
+    ]
+
+    private lazy var baseRank: [String: Int] = {
+        var map: [String: Int] = [:]
+        for (i, w) in coreLexicon.enumerated() {
+            map[w] = i
         }
-        return dict
+        return map
     }()
+
+    init() {
+        if let savedUni = defaults.dictionary(forKey: unigramKey) as? [String: Int] {
+            userUnigrams = savedUni
+        }
+        if let savedBi = defaults.dictionary(forKey: bigramKey) as? [String: [String: Int]] {
+            userBigrams = savedBi
+        }
+        if let savedTri = defaults.dictionary(forKey: trigramKey) as? [String: [String: Int]] {
+            userTrigrams = savedTri
+        }
+    }
+
+    func autoCorrectionForLastWord(in context: String?) -> (original: String, corrected: String)? {
+        guard let before = context, !before.isEmpty, before.last?.isWhitespace == false else { return nil }
+        let tokens = tokenize(before)
+        guard let last = tokens.last else { return nil }
+        let lower = last.lowercased()
+        guard let fixed = autoCorrectMap[lower], fixed != lower else { return nil }
+        let isCap = last.first?.isUppercase == true
+        return (last, applyCase(fixed, capitalize: isCap))
+    }
+
+    func learn(fromContextBefore context: String?) {
+        guard let before = context, !before.isEmpty else { return }
+        let tokens = tokenize(before)
+        guard let last = tokens.last, !last.isEmpty else { return }
+
+        let w3 = last.lowercased()
+        userUnigrams[w3, default: 0] += 1
+
+        if tokens.count >= 2 {
+            let w2 = tokens[tokens.count - 2].lowercased()
+            var nextMap = userBigrams[w2] ?? [:]
+            nextMap[w3, default: 0] += 2
+            userBigrams[w2] = nextMap
+        }
+
+        if tokens.count >= 3 {
+            let w1 = tokens[tokens.count - 3].lowercased()
+            let w2 = tokens[tokens.count - 2].lowercased()
+            let pairKey = "\(w1) \(w2)"
+            var triMap = userTrigrams[pairKey] ?? [:]
+            triMap[w3, default: 0] += 3
+            userTrigrams[pairKey] = triMap
+        }
+
+        defaults.set(userUnigrams, forKey: unigramKey)
+        defaults.set(userBigrams, forKey: bigramKey)
+        defaults.set(userTrigrams, forKey: trigramKey)
+    }
 
     func predict(contextBefore: String?) -> (suggestions: [String], replacingPrefix: String) {
         guard let before = contextBefore, !before.isEmpty else {
@@ -151,40 +301,79 @@ class FrenchPredictionEngine {
         let trimmedRight = before.trimmingCharacters(in: .whitespacesAndNewlines)
         let endsWithSpace = before.last?.isWhitespace == true
 
-        // Cas 1 : L'utilisateur vient de taper un espace -> prédire le MOT SUIVANT
+        // CAS 1 : Après un espace -> Prédiction contextuelle du mot suivant (Trigrammes > Bigrammes > Grammaire)
         if endsWithSpace {
-            let words = trimmedRight
-                .components(separatedBy: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?;:\"()")))
-                .filter { !$0.isEmpty }
-
-            guard let lastRaw = words.last else {
-                return (["Bonjour", "Je", "Oui"], "")
-            }
-
-            let lastWord = lastRaw.lowercased()
-
-            // Vérifier d'abord une paire de 2 mots (ex: "je suis", "ça va", "il y")
-            if words.count >= 2 {
-                let twoWords = "\(words[words.count - 2].lowercased()) \(lastWord)"
-                if let pairMatches = nextWordMap[twoWords] {
-                    return (pairMatches, "")
-                }
-            }
-
-            // Sinon vérifier le mot précédent seul
-            if let nextMatches = nextWordMap[lastWord] {
-                return (nextMatches, "")
-            }
-
-            // Après un point, proposer des débuts de phrase naturels
             if trimmedRight.hasSuffix(".") || trimmedRight.hasSuffix("?") || trimmedRight.hasSuffix("!") {
                 return (["Je", "On", "C'est"], "")
             }
 
-            return (["de", "et", "à"], "")
+            let tokens = tokenize(trimmedRight)
+            guard let lastRaw = tokens.last else {
+                return (["Bonjour", "Je", "Oui"], "")
+            }
+
+            let lastWord = lastRaw.lowercased()
+            var scoredNext: [(word: String, score: Double)] = []
+
+            // 1. Trigrammes appris de l'utilisateur (ex: "je suis" -> "là")
+            if tokens.count >= 2 {
+                let twoWords = "\(tokens[tokens.count - 2].lowercased()) \(lastWord)"
+                if let learnedTri = userTrigrams[twoWords] {
+                    for (w, count) in learnedTri {
+                        scoredNext.append((w, 260.0 + Double(count) * 30.0))
+                    }
+                }
+            }
+
+            // 2. Bigrammes appris de l'utilisateur
+            if let learnedNext = userBigrams[lastWord] {
+                for (w, count) in learnedNext {
+                    scoredNext.append((w, 200.0 + Double(count) * 25.0))
+                }
+            }
+
+            // 3. Transitions intégrées sur 2 mots
+            if tokens.count >= 2 {
+                let twoWords = "\(tokens[tokens.count - 2].lowercased()) \(lastWord)"
+                if let pairMatches = transitions[twoWords] {
+                    for (idx, w) in pairMatches.enumerated() {
+                        scoredNext.append((w, 160.0 - Double(idx) * 10.0))
+                    }
+                }
+            }
+
+            // 4. Transitions intégrées sur 1 mot
+            if let nextMatches = transitions[lastWord] {
+                for (idx, w) in nextMatches.enumerated() {
+                    scoredNext.append((w, 130.0 - Double(idx) * 8.0))
+                }
+            }
+
+            // 5. Analyse grammaticale Apple NaturalLanguage (NLTagger)
+            let expectedTags = expectedNextPOS(after: trimmedRight)
+            if !expectedTags.isEmpty {
+                for (idx, candidate) in coreLexicon.prefix(90).enumerated() {
+                    let tag = lexicalTag(for: candidate)
+                    if expectedTags.contains(tag) {
+                        scoredNext.append((candidate, 85.0 - Double(idx) * 0.4))
+                    }
+                }
+            }
+
+            let merged = deduplicateAndSort(scoredNext)
+            if merged.count >= 3 {
+                return (Array(merged.prefix(3)), "")
+            }
+
+            let fallbacks = ["de", "et", "à", "le", "que"]
+            var result = merged
+            for fb in fallbacks where !result.contains(fb) {
+                result.append(fb)
+            }
+            return (Array(result.prefix(3)), "")
         }
 
-        // Cas 2 : L'utilisateur est en train de taper un mot -> compléter / corriger
+        // CAS 2 : Mot en cours de frappe -> Complétion + Correction intelligente
         let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?;:\"()"))
         let currentToken: String
         if let range = before.rangeOfCharacter(from: separators, options: .backwards) {
@@ -197,7 +386,6 @@ class FrenchPredictionEngine {
             return (["Bonjour", "Je", "Ça"], "")
         }
 
-        // Gestion de l'apostrophe française (ex: "j'a" -> préfixe d'élision "j'", mot recherché "a")
         var elisionPrefix = ""
         var searchWord = currentToken
         if let aposIndex = currentToken.lastIndex(of: "'") {
@@ -211,52 +399,139 @@ class FrenchPredictionEngine {
 
         if searchWord.isEmpty && !elisionPrefix.isEmpty {
             let key = elisionPrefix.lowercased()
-            let base = nextWordMap[key] ?? ["est", "ai", "un"]
-            let formatted = base.map { applyCase(elisionPrefix + $0, capitalize: isCapitalized) }
-            return (Array(formatted.prefix(3)), currentToken)
+            let base = transitions[key] ?? ["est", "ai", "un"]
+            let formatted = base.prefix(3).map { applyCase(elisionPrefix + $0, capitalize: isCapitalized) }
+            return (Array(formatted), currentToken)
         }
 
-        var candidates: [String] = []
+        let beforeCurrentToken = String(before.dropLast(currentToken.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let prevTokens = tokenize(beforeCurrentToken)
+        let prevWord = prevTokens.last?.lowercased() ?? ""
+        let prevTwoWords = prevTokens.count >= 2 ? "\(prevTokens[prevTokens.count - 2].lowercased()) \(prevWord)" : ""
+        let expectedTags = beforeCurrentToken.isEmpty ? [.pronoun, .interjection] : expectedNextPOS(after: beforeCurrentToken)
 
-        // 1. Correspondances dans notre liste de fréquence française
-        let frequentMatches = commonWords.filter { $0.hasPrefix(lowerSearch) && $0 != lowerSearch }
-        candidates.append(contentsOf: frequentMatches)
+        var scoredCandidates: [(word: String, score: Double)] = []
 
-        // 2. Complétions système iOS fr_FR
+        if let shortcuts = accentShortcuts[lowerSearch] {
+            for (idx, w) in shortcuts.enumerated() {
+                scoredCandidates.append((w, 260.0 - Double(idx) * 15.0))
+            }
+        }
+
+        for (w, count) in userUnigrams where w.hasPrefix(lowerSearch) {
+            var bonus = 180.0 + Double(count) * 15.0
+            if let biCount = userBigrams[prevWord]?[w] {
+                bonus += Double(biCount) * 40.0
+            }
+            if !prevTwoWords.isEmpty, let triCount = userTrigrams[prevTwoWords]?[w] {
+                bonus += Double(triCount) * 60.0
+            }
+            scoredCandidates.append((w, bonus))
+        }
+
+        let expectedFromPrev = Set(transitions[prevWord] ?? [])
+        for (idx, w) in coreLexicon.enumerated() where w.hasPrefix(lowerSearch) {
+            var score = 150.0 - Double(idx) * 0.45
+            if w == lowerSearch { score += 25.0 }
+            if expectedFromPrev.contains(w) { score += 55.0 }
+            if !expectedTags.isEmpty && expectedTags.contains(lexicalTag(for: w)) {
+                score += 30.0
+            }
+            scoredCandidates.append((w, score))
+        }
+
         let nsSearch = searchWord as NSString
         let range = NSRange(location: 0, length: nsSearch.length)
         if let iosCompletions = textChecker.completions(forPartialWordRange: range, in: searchWord, language: "fr_FR") {
-            let sortedIOS = iosCompletions.sorted { a, b in
-                let rankA = frequencyRank[a.lowercased()] ?? 9999
-                let rankB = frequencyRank[b.lowercased()] ?? 9999
-                if rankA != rankB { return rankA < rankB }
-                return a.count < b.count
-            }
-            for word in sortedIOS where !candidates.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) {
-                candidates.append(word)
+            for w in iosCompletions.prefix(20) {
+                let lw = w.lowercased()
+                let freqBonus = (baseRank[lw] != nil) ? 40.0 : 0.0
+                let lengthPenalty = Double(max(0, w.count - searchWord.count)) * 1.5
+                scoredCandidates.append((w, 95.0 + freqBonus - lengthPenalty))
             }
         }
 
-        // 3. Corrections orthographiques / accents (ex: "ca" -> "ça", "etre" -> "être", "ou" -> "où")
-        let misspelledRange = textChecker.rangeOfMisspelledWord(in: searchWord, range: range, startingAt: 0, wrap: false, language: "fr_FR")
-        if misspelledRange.location != NSNotFound || lowerSearch.count >= 2 {
+        if lowerSearch.count >= 2 {
             if let guesses = textChecker.guesses(forWordRange: range, in: searchWord, language: "fr_FR") {
-                for guess in guesses where !candidates.contains(where: { $0.caseInsensitiveCompare(guess) == .orderedSame }) {
-                    candidates.insert(guess, at: min(1, candidates.count))
+                for (idx, guess) in guesses.prefix(5).enumerated() {
+                    let proximityBonus = isAzertyNeighborTypo(typed: lowerSearch, candidate: guess.lowercased()) ? 65.0 : 20.0
+                    scoredCandidates.append((guess, 90.0 + proximityBonus - Double(idx) * 8.0))
                 }
             }
         }
 
-        // Garantir que le mot exact tapé (ou avec accent) est accessible en 1re ou 2e position
-        if !candidates.contains(where: { $0.caseInsensitiveCompare(searchWord) == .orderedSame }) {
-            candidates.insert(searchWord, at: min(1, candidates.count))
+        if !scoredCandidates.contains(where: { $0.word.caseInsensitiveCompare(searchWord) == .orderedSame }) {
+            scoredCandidates.append((searchWord, 80.0))
         }
 
-        let finalSuggestions = candidates.prefix(3).map { word in
+        let sorted = deduplicateAndSort(scoredCandidates)
+        let finalSuggestions = sorted.prefix(3).map { word in
             applyCase(elisionPrefix + word, capitalize: isCapitalized)
         }
 
         return (Array(finalSuggestions), currentToken)
+    }
+
+    private func expectedNextPOS(after text: String) -> Set<NLTag> {
+        let tokens = tokenize(text)
+        guard let last = tokens.last else { return [.pronoun] }
+        let tag = lexicalTag(for: last)
+
+        switch tag {
+        case .pronoun:
+            return [.verb]
+        case .determiner:
+            return [.noun, .adjective]
+        case .preposition:
+            return [.determiner, .noun, .verb, .pronoun]
+        case .verb:
+            return [.adverb, .determiner, .preposition, .pronoun, .adjective]
+        case .noun:
+            return [.adjective, .verb, .preposition, .conjunction]
+        default:
+            return []
+        }
+    }
+
+    private func lexicalTag(for word: String) -> NLTag {
+        tagger.string = word
+        let (tag, _) = tagger.tag(at: word.startIndex, unit: .word, scheme: .lexicalClass)
+        return tag ?? .other
+    }
+
+    private func isAzertyNeighborTypo(typed: String, candidate: String) -> Bool {
+        guard typed.count == candidate.count else { return false }
+        var diffs = 0
+        for (c1, c2) in zip(typed, candidate) where c1 != c2 {
+            diffs += 1
+            if diffs > 1 { return false }
+            if !(azertyNeighbors[c1]?.contains(c2) ?? false) {
+                return false
+            }
+        }
+        return diffs == 1
+    }
+
+    private func tokenize(_ text: String) -> [String] {
+        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?;:\"()"))
+        return text.components(separatedBy: separators).filter { !$0.isEmpty }
+    }
+
+    private func deduplicateAndSort(_ items: [(word: String, score: Double)]) -> [String] {
+        var bestScores: [String: (display: String, score: Double)] = [:]
+        for item in items {
+            let key = item.word.lowercased()
+            if let existing = bestScores[key] {
+                if item.score > existing.score {
+                    bestScores[key] = (item.word, item.score)
+                }
+            } else {
+                bestScores[key] = (item.word, item.score)
+            }
+        }
+        return bestScores.values
+            .sorted { $0.score > $1.score }
+            .map { $0.display }
     }
 
     private func applyCase(_ word: String, capitalize: Bool) -> String {
@@ -270,11 +545,12 @@ class KeyboardViewController: UIInputViewController {
     private var isUppercase = true
     private var isNumbers = false
     private var lastPressTime: TimeInterval = 0
+    private var lastSpaceTime: TimeInterval = 0
     private let debounceInterval: TimeInterval = 0.30
     private var mainStackView: UIStackView!
     private var suggestionViews: [KeyView] = []
     private var currentReplacingPrefix: String = ""
-    private let predictionEngine = FrenchPredictionEngine()
+    private let predictionEngine = NeuralFrenchPredictionEngine()
 
     private var keyboardBackgroundColor: UIColor {
         UIColor { trait in
@@ -304,7 +580,7 @@ class KeyboardViewController: UIInputViewController {
         ["A", "Z", "E", "R", "T", "Y", "U", "I", "O", "P"],
         ["Q", "S", "D", "F", "G", "H", "J", "K", "L", "M"],
         ["SHIFT", "W", "X", "C", "V", "B", "N", "'", "DEL"],
-        ["123", "SPACE", ".", "?", "!", "RETURN"]
+        ["123", "SPACE", ",", ".", "?", "RETURN"]
     ]
 
     private let numberRows = [
@@ -422,7 +698,7 @@ class KeyboardViewController: UIInputViewController {
             kv.label.font = UIFont.systemFont(ofSize: 17, weight: .regular)
             kv.defaultColor = modifierKeyColor
             kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 105).isActive = true
-        case ".", "?", "!":
+        case ",", ".", "?", "!":
             kv.label.text = title
             kv.label.font = UIFont.systemFont(ofSize: 23, weight: .medium)
             kv.defaultColor = standardKeyColor
@@ -460,11 +736,7 @@ class KeyboardViewController: UIInputViewController {
         if now - lastPressTime < debounceInterval { return }
         lastPressTime = now
 
-        let savedColor = sender.defaultColor
-        sender.backgroundColor = modifierKeyColor.withAlphaComponent(0.4)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            sender.backgroundColor = savedColor
-        }
+        sender.animateFeedback(highlightColor: UIColor.systemBlue.withAlphaComponent(0.25))
 
         guard let chosenWord = sender.label.text, !chosenWord.isEmpty else { return }
 
@@ -474,6 +746,7 @@ class KeyboardViewController: UIInputViewController {
 
         let suffix = chosenWord.hasSuffix("'") ? "" : " "
         textDocumentProxy.insertText(chosenWord + suffix)
+        predictionEngine.learn(fromContextBefore: textDocumentProxy.documentContextBeforeInput)
         isUppercase = false
         setupKeyboardInterface()
     }
@@ -483,11 +756,7 @@ class KeyboardViewController: UIInputViewController {
         if now - lastPressTime < debounceInterval { return }
         lastPressTime = now
 
-        let savedColor = sender.defaultColor
-        sender.backgroundColor = UIColor.systemGray3
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            sender.backgroundColor = savedColor
-        }
+        sender.animateFeedback(highlightColor: UIColor.systemBlue.withAlphaComponent(0.22))
 
         switch sender.keyIdentifier {
         case "SHIFT":
@@ -503,21 +772,51 @@ class KeyboardViewController: UIInputViewController {
             isNumbers = false
             setupKeyboardInterface()
         case "SPACE":
+            let before = textDocumentProxy.documentContextBeforeInput ?? ""
+            // Double-espace rapide (< 1,2 s) après un mot -> insère un point et passe en majuscule
+            if now - lastSpaceTime < 1.2, before.hasSuffix(" "), before.count >= 2 {
+                let prevChar = before[before.index(before.endIndex, offsetBy: -2)]
+                if prevChar.isLetter || prevChar.isNumber {
+                    textDocumentProxy.deleteBackward()
+                    textDocumentProxy.insertText(". ")
+                    lastSpaceTime = 0
+                    isUppercase = true
+                    setupKeyboardInterface()
+                    return
+                }
+            }
+
+            // Auto-correction silencieuse des accents oubliés avant d'insérer l'espace
+            if let fix = predictionEngine.autoCorrectionForLastWord(in: before) {
+                for _ in 0..<fix.original.count {
+                    textDocumentProxy.deleteBackward()
+                }
+                textDocumentProxy.insertText(fix.corrected)
+            }
+
+            predictionEngine.learn(fromContextBefore: textDocumentProxy.documentContextBeforeInput)
             textDocumentProxy.insertText(" ")
+            lastSpaceTime = now
             updatePredictions()
         case "RETURN":
+            predictionEngine.learn(fromContextBefore: textDocumentProxy.documentContextBeforeInput)
             textDocumentProxy.insertText("\n")
             isUppercase = true
             setupKeyboardInterface()
-        case ".", "?", "!":
-            // Supprime l'espace ajouté après une prédiction si on tape une ponctuation juste après
+        case ",", ".", "?", "!":
+            predictionEngine.learn(fromContextBefore: textDocumentProxy.documentContextBeforeInput)
             if let before = textDocumentProxy.documentContextBeforeInput, before.hasSuffix(" ") {
                 textDocumentProxy.deleteBackward()
             }
             textDocumentProxy.insertText(sender.keyIdentifier + " ")
-            isUppercase = true
-            setupKeyboardInterface()
+            if sender.keyIdentifier != "," {
+                isUppercase = true
+                setupKeyboardInterface()
+            } else {
+                updatePredictions()
+            }
         default:
+            lastSpaceTime = 0
             let charToInsert = isUppercase ? sender.keyIdentifier.uppercased() : sender.keyIdentifier.lowercased()
             textDocumentProxy.insertText(charToInsert)
             if isUppercase && sender.keyIdentifier.rangeOfCharacter(from: .letters) != nil {
