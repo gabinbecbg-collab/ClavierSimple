@@ -55,6 +55,216 @@ class KeyView: UIView {
     }
 }
 
+class FrenchPredictionEngine {
+    private let textChecker = UITextChecker()
+
+    // Mots français les plus fréquents classés par priorité d'usage
+    private let commonWords: [String] = [
+        "je", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
+        "le", "la", "les", "un", "une", "des", "du", "de", "au", "aux",
+        "ce", "cet", "cette", "ces", "mon", "ton", "son", "ma", "ta", "sa", "mes", "tes", "ses", "notre", "votre", "leur",
+        "que", "qui", "quoi", "dont", "où", "quand", "comment", "pourquoi", "combien",
+        "et", "ou", "mais", "donc", "or", "ni", "car", "si", "alors", "aussi", "très", "trop", "bien", "mal", "peu", "beaucoup",
+        "dans", "sur", "sous", "avec", "sans", "pour", "par", "vers", "chez", "entre", "avant", "après", "depuis", "pendant",
+        "suis", "es", "est", "sommes", "êtes", "sont", "étais", "était", "serai", "sera", "être", "été",
+        "ai", "as", "a", "avons", "avez", "ont", "avais", "avait", "aurai", "aura", "avoir", "eu",
+        "vais", "vas", "va", "allons", "allez", "vont", "aller", "allé",
+        "fais", "fait", "faisons", "faites", "font", "faire",
+        "peux", "peut", "pouvons", "pouvez", "peuvent", "pouvoir", "pu",
+        "veux", "veut", "voulons", "voulez", "veulent", "vouloir", "voulu",
+        "dois", "doit", "devons", "devez", "doivent", "devoir",
+        "sais", "sait", "savons", "savez", "savent", "savoir",
+        "vois", "voit", "voyons", "voyez", "voient", "voir", "vu",
+        "prends", "prend", "prenons", "prenez", "prennent", "prendre", "pris",
+        "viens", "vient", "venons", "venez", "viennent", "venir", "venu",
+        "dis", "dit", "disons", "dites", "disent", "dire",
+        "mets", "met", "mettons", "mettez", "mettent", "mettre", "mis",
+        "bonjour", "salut", "coucou", "merci", "oui", "non", "ok", "d'accord", "pardon", "excuse", "s'il", "plaît",
+        "aujourd'hui", "demain", "hier", "maintenant", "bientôt", "toujours", "jamais", "souvent", "parfois", "déjà", "encore",
+        "tout", "tous", "toute", "toutes", "rien", "personne", "quelque", "chose", "quelqu'un",
+        "bon", "bonne", "petit", "petite", "grand", "grande", "nouveau", "nouvelle", "vieux", "vieille", "autre", "même",
+        "temps", "jour", "fois", "heure", "ans", "monde", "vie", "main", "tête", "cœur", "maison", "voiture", "fauteuil",
+        "travail", "problème", "question", "idée", "besoin", "envie", "peur", "raison", "place", "fin", "début", "coup"
+    ]
+
+    // Prédiction contextuelle du mot suivant (Bigrammes français courants)
+    private let nextWordMap: [String: [String]] = [
+        "je": ["suis", "vais", "veux"],
+        "j'": ["ai", "aime", "espère"],
+        "tu": ["es", "vas", "peux"],
+        "il": ["est", "a", "va"],
+        "elle": ["est", "a", "va"],
+        "on": ["est", "va", "peut"],
+        "nous": ["sommes", "avons", "allons"],
+        "vous": ["êtes", "avez", "pouvez"],
+        "ils": ["sont", "ont", "vont"],
+        "elles": ["sont", "ont", "vont"],
+        "ça": ["va", "marche", "fait"],
+        "c'": ["est", "était", "était"],
+        "c'est": ["bon", "parfait", "super"],
+        "ce": ["n'est", "qui", "que"],
+        "n'": ["est", "ai", "a"],
+        "ne": ["pas", "sais", "peux"],
+        "pas": ["de", "du", "mal"],
+        "de": ["la", "le", "faire"],
+        "à": ["la", "demain", "tout"],
+        "au": ["top", "moins", "revoir"],
+        "en": ["fait", "train", "ce"],
+        "pour": ["le", "la", "moi"],
+        "dans": ["le", "la", "les"],
+        "avec": ["le", "la", "mon"],
+        "sur": ["le", "la", "mon"],
+        "et": ["toi", "vous", "je"],
+        "mais": ["je", "c'est", "il"],
+        "si": ["tu", "on", "c'est"],
+        "quand": ["tu", "on", "même"],
+        "comment": ["ça", "vas-tu", "faire"],
+        "pourquoi": ["pas", "tu", "il"],
+        "bonjour": ["comment", "ça", "à"],
+        "salut": ["comment", "ça", "tu"],
+        "merci": ["beaucoup", "pour", "à"],
+        "s'il": ["te", "vous", "plaît"],
+        "te": ["plaît", "dire", "voir"],
+        "vous": ["plaît", "êtes", "avez"],
+        "je suis": ["en", "là", "prêt"],
+        "je vais": ["bien", "voir", "faire"],
+        "je veux": ["bien", "dire", "aller"],
+        "j'ai": ["besoin", "envie", "fait"],
+        "ça va": ["bien", "et", "merci"],
+        "il y": ["a", "avait", "aura"],
+        "y": ["a", "va", "crois"]
+    ]
+
+    private lazy var frequencyRank: [String: Int] = {
+        var dict: [String: Int] = [:]
+        for (idx, word) in commonWords.enumerated() {
+            dict[word] = idx
+        }
+        return dict
+    }()
+
+    func predict(contextBefore: String?) -> (suggestions: [String], replacingPrefix: String) {
+        guard let before = contextBefore, !before.isEmpty else {
+            return (["Bonjour", "Je", "Ça"], "")
+        }
+
+        let trimmedRight = before.trimmingCharacters(in: .whitespacesAndNewlines)
+        let endsWithSpace = before.last?.isWhitespace == true
+
+        // Cas 1 : L'utilisateur vient de taper un espace -> prédire le MOT SUIVANT
+        if endsWithSpace {
+            let words = trimmedRight
+                .components(separatedBy: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?;:\"()")))
+                .filter { !$0.isEmpty }
+
+            guard let lastRaw = words.last else {
+                return (["Bonjour", "Je", "Oui"], "")
+            }
+
+            let lastWord = lastRaw.lowercased()
+
+            // Vérifier d'abord une paire de 2 mots (ex: "je suis", "ça va", "il y")
+            if words.count >= 2 {
+                let twoWords = "\(words[words.count - 2].lowercased()) \(lastWord)"
+                if let pairMatches = nextWordMap[twoWords] {
+                    return (pairMatches, "")
+                }
+            }
+
+            // Sinon vérifier le mot précédent seul
+            if let nextMatches = nextWordMap[lastWord] {
+                return (nextMatches, "")
+            }
+
+            // Après un point, proposer des débuts de phrase naturels
+            if trimmedRight.hasSuffix(".") || trimmedRight.hasSuffix("?") || trimmedRight.hasSuffix("!") {
+                return (["Je", "On", "C'est"], "")
+            }
+
+            return (["de", "et", "à"], "")
+        }
+
+        // Cas 2 : L'utilisateur est en train de taper un mot -> compléter / corriger
+        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?;:\"()"))
+        let currentToken: String
+        if let range = before.rangeOfCharacter(from: separators, options: .backwards) {
+            currentToken = String(before[range.upperBound...])
+        } else {
+            currentToken = before
+        }
+
+        if currentToken.isEmpty {
+            return (["Bonjour", "Je", "Ça"], "")
+        }
+
+        // Gestion de l'apostrophe française (ex: "j'a" -> préfixe d'élision "j'", mot recherché "a")
+        var elisionPrefix = ""
+        var searchWord = currentToken
+        if let aposIndex = currentToken.lastIndex(of: "'") {
+            let afterApos = currentToken.index(after: aposIndex)
+            elisionPrefix = String(currentToken[..<afterApos])
+            searchWord = String(currentToken[afterApos...])
+        }
+
+        let lowerSearch = searchWord.lowercased()
+        let isCapitalized = currentToken.first?.isUppercase == true
+
+        if searchWord.isEmpty && !elisionPrefix.isEmpty {
+            let key = elisionPrefix.lowercased()
+            let base = nextWordMap[key] ?? ["est", "ai", "un"]
+            let formatted = base.map { applyCase(elisionPrefix + $0, capitalize: isCapitalized) }
+            return (Array(formatted.prefix(3)), currentToken)
+        }
+
+        var candidates: [String] = []
+
+        // 1. Correspondances dans notre liste de fréquence française
+        let frequentMatches = commonWords.filter { $0.hasPrefix(lowerSearch) && $0 != lowerSearch }
+        candidates.append(contentsOf: frequentMatches)
+
+        // 2. Complétions système iOS fr_FR
+        let nsSearch = searchWord as NSString
+        let range = NSRange(location: 0, length: nsSearch.length)
+        if let iosCompletions = textChecker.completions(forPartialWordRange: range, in: searchWord, language: "fr_FR") {
+            let sortedIOS = iosCompletions.sorted { a, b in
+                let rankA = frequencyRank[a.lowercased()] ?? 9999
+                let rankB = frequencyRank[b.lowercased()] ?? 9999
+                if rankA != rankB { return rankA < rankB }
+                return a.count < b.count
+            }
+            for word in sortedIOS where !candidates.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) {
+                candidates.append(word)
+            }
+        }
+
+        // 3. Corrections orthographiques / accents (ex: "ca" -> "ça", "etre" -> "être", "ou" -> "où")
+        let misspelledRange = textChecker.rangeOfMisspelledWord(in: searchWord, range: range, startingAt: 0, wrap: false, language: "fr_FR")
+        if misspelledRange.location != NSNotFound || lowerSearch.count >= 2 {
+            if let guesses = textChecker.guesses(forWordRange: range, in: searchWord, language: "fr_FR") {
+                for guess in guesses where !candidates.contains(where: { $0.caseInsensitiveCompare(guess) == .orderedSame }) {
+                    candidates.insert(guess, at: min(1, candidates.count))
+                }
+            }
+        }
+
+        // Garantir que le mot exact tapé (ou avec accent) est accessible en 1re ou 2e position
+        if !candidates.contains(where: { $0.caseInsensitiveCompare(searchWord) == .orderedSame }) {
+            candidates.insert(searchWord, at: min(1, candidates.count))
+        }
+
+        let finalSuggestions = candidates.prefix(3).map { word in
+            applyCase(elisionPrefix + word, capitalize: isCapitalized)
+        }
+
+        return (Array(finalSuggestions), currentToken)
+    }
+
+    private func applyCase(_ word: String, capitalize: Bool) -> String {
+        guard capitalize, let first = word.first else { return word }
+        return String(first).uppercased() + word.dropFirst()
+    }
+}
+
 class KeyboardViewController: UIInputViewController {
 
     private var isUppercase = true
@@ -63,7 +273,8 @@ class KeyboardViewController: UIInputViewController {
     private let debounceInterval: TimeInterval = 0.30
     private var mainStackView: UIStackView!
     private var suggestionViews: [KeyView] = []
-    private let textChecker = UITextChecker()
+    private var currentReplacingPrefix: String = ""
+    private let predictionEngine = FrenchPredictionEngine()
 
     private var keyboardBackgroundColor: UIColor {
         UIColor { trait in
@@ -147,7 +358,7 @@ class KeyboardViewController: UIInputViewController {
             kv.layer.cornerRadius = 0
             kv.layer.shadowOpacity = 0
             kv.defaultColor = .clear
-            kv.label.font = UIFont.systemFont(ofSize: 18, weight: .regular)
+            kv.label.font = UIFont.systemFont(ofSize: 18, weight: .medium)
             kv.onTrigger = { [weak self] view in self?.predictionPressed(view) }
             suggestionViews.append(kv)
             predictionStack.addArrangedSubview(kv)
@@ -228,39 +439,15 @@ class KeyboardViewController: UIInputViewController {
         return kv
     }
 
-    private func currentWordPrefix() -> String {
-        guard let before = textDocumentProxy.documentContextBeforeInput, !before.isEmpty else { return "" }
-        let separators = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
-        if let range = before.rangeOfCharacter(from: separators, options: .backwards) {
-            return String(before[range.upperBound...])
-        }
-        return before
-    }
-
     private func updatePredictions() {
-        let prefix = currentWordPrefix()
-        var suggestions: [String] = []
-
-        if !prefix.isEmpty {
-            let range = NSRange(location: 0, length: (prefix as NSString).length)
-            if let completions = textChecker.completions(forPartialWordRange: range, in: prefix, language: "fr_FR") {
-                suggestions.append(contentsOf: completions)
-            }
-            if suggestions.count < 3, let guesses = textChecker.guesses(forWordRange: range, in: prefix, language: "fr_FR") {
-                for guess in guesses where !suggestions.contains(guess) {
-                    suggestions.append(guess)
-                }
-            }
-        } else {
-            suggestions = ["Bonjour", "Je", "Merci"]
-        }
+        let result = predictionEngine.predict(contextBefore: textDocumentProxy.documentContextBeforeInput)
+        currentReplacingPrefix = result.replacingPrefix
 
         for i in 0..<suggestionViews.count {
-            if i < suggestions.count {
-                let word = suggestions[i]
-                let formatted = (prefix.first?.isUppercase == true) ? word.prefix(1).uppercased() + word.dropFirst() : word
-                suggestionViews[i].label.text = formatted
-                suggestionViews[i].accessibilityLabel = formatted
+            if i < result.suggestions.count {
+                let word = result.suggestions[i]
+                suggestionViews[i].label.text = word
+                suggestionViews[i].accessibilityLabel = word
             } else {
                 suggestionViews[i].label.text = ""
                 suggestionViews[i].accessibilityLabel = ""
@@ -280,11 +467,13 @@ class KeyboardViewController: UIInputViewController {
         }
 
         guard let chosenWord = sender.label.text, !chosenWord.isEmpty else { return }
-        let prefix = currentWordPrefix()
-        for _ in 0..<prefix.count {
+
+        for _ in 0..<currentReplacingPrefix.count {
             textDocumentProxy.deleteBackward()
         }
-        textDocumentProxy.insertText(chosenWord + " ")
+
+        let suffix = chosenWord.hasSuffix("'") ? "" : " "
+        textDocumentProxy.insertText(chosenWord + suffix)
         isUppercase = false
         setupKeyboardInterface()
     }
@@ -318,7 +507,16 @@ class KeyboardViewController: UIInputViewController {
             updatePredictions()
         case "RETURN":
             textDocumentProxy.insertText("\n")
-            updatePredictions()
+            isUppercase = true
+            setupKeyboardInterface()
+        case ".", "?", "!":
+            // Supprime l'espace ajouté après une prédiction si on tape une ponctuation juste après
+            if let before = textDocumentProxy.documentContextBeforeInput, before.hasSuffix(" ") {
+                textDocumentProxy.deleteBackward()
+            }
+            textDocumentProxy.insertText(sender.keyIdentifier + " ")
+            isUppercase = true
+            setupKeyboardInterface()
         default:
             let charToInsert = isUppercase ? sender.keyIdentifier.uppercased() : sender.keyIdentifier.lowercased()
             textDocumentProxy.insertText(charToInsert)
