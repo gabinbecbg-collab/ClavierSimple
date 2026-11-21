@@ -65,7 +65,6 @@ class KeyboardViewController: UIInputViewController {
     private var suggestionViews: [KeyView] = []
     private let textChecker = UITextChecker()
 
-    // Couleurs fidèles au clavier iPadOS (Mode Clair & Sombre)
     private var keyboardBackgroundColor: UIColor {
         UIColor { trait in
             trait.userInterfaceStyle == .dark
@@ -119,7 +118,6 @@ class KeyboardViewController: UIInputViewController {
         suggestionViews.removeAll()
         view.backgroundColor = keyboardBackgroundColor
 
-        // Proportions natives iPadOS : ~265 pt pour les 4 rangées + 45 pt pour la barre de prédiction
         let heightConstraint = view.heightAnchor.constraint(equalToConstant: 310)
         heightConstraint.priority = UILayoutPriority(999)
         heightConstraint.isActive = true
@@ -138,7 +136,6 @@ class KeyboardViewController: UIInputViewController {
             mainStackView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8)
         ])
 
-        // Barre de prédiction style Apple (fond intégré, séparateurs verticaux fins)
         let predictionStack = UIStackView()
         predictionStack.axis = .horizontal
         predictionStack.distribution = .fillEqually
@@ -157,7 +154,6 @@ class KeyboardViewController: UIInputViewController {
         }
         mainStackView.addArrangedSubview(predictionStack)
 
-        // Conteneur des 4 rangées de touches de hauteur égale (proportions natives)
         let keysContainer = UIStackView()
         keysContainer.axis = .vertical
         keysContainer.distribution = .fillEqually
@@ -170,14 +166,13 @@ class KeyboardViewController: UIInputViewController {
             rowStack.distribution = .fillProportionally
             rowStack.spacing = 6
 
-            // Léger retrait latéral sur la 2e rangée (Q..M) comme sur le clavier Apple
             if index == 1 {
                 rowStack.isLayoutMarginsRelativeArrangement = true
                 rowStack.layoutMargins = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
             }
 
             for key in row {
-                rowStack.addArrangedSubview(createKeyView(title: key))
+                rowStack.addArrangedSubview(createKeyView(title: key, isBottomRow: index == 3))
             }
             keysContainer.addArrangedSubview(rowStack)
         }
@@ -186,7 +181,7 @@ class KeyboardViewController: UIInputViewController {
         updatePredictions()
     }
 
-    private func createKeyView(title: String) -> KeyView {
+    private func createKeyView(title: String, isBottomRow: Bool) -> KeyView {
         let kv = KeyView()
         kv.keyIdentifier = title
 
@@ -205,17 +200,24 @@ class KeyboardViewController: UIInputViewController {
             kv.label.text = title
             kv.label.font = UIFont.systemFont(ofSize: 17, weight: .regular)
             kv.defaultColor = modifierKeyColor
-            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 78).isActive = true
+            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 82).isActive = true
         case "SPACE":
             kv.label.text = "espace"
             kv.label.font = UIFont.systemFont(ofSize: 17, weight: .regular)
             kv.defaultColor = standardKeyColor
-            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 360).isActive = true
+            kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 210).isActive = true
         case "RETURN":
             kv.label.text = "retour"
             kv.label.font = UIFont.systemFont(ofSize: 17, weight: .regular)
             kv.defaultColor = modifierKeyColor
             kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 105).isActive = true
+        case ".", "?", "!":
+            kv.label.text = title
+            kv.label.font = UIFont.systemFont(ofSize: 23, weight: .medium)
+            kv.defaultColor = standardKeyColor
+            if isBottomRow {
+                kv.widthAnchor.constraint(greaterThanOrEqualToConstant: 76).isActive = true
+            }
         default:
             kv.label.text = isUppercase ? title.uppercased() : title.lowercased()
             kv.defaultColor = standardKeyColor
